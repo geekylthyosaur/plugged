@@ -5,12 +5,12 @@ use wasmer::{imports, FunctionType, Instance, Module, Store, Value, WasmTypeList
 #[derive(Debug, thiserror::Error)]
 pub enum PluginError {
     #[error(transparent)]
-    GenericError(#[from] anyhow::Error),
+    ExportError(#[from] wasmer::ExportError),
     #[error(transparent)]
-    IoError(#[from] std::io::Error),
+    LoadError(#[from] anyhow::Error),
     #[error(transparent)]
     RuntimeError(#[from] wasmer::RuntimeError),
-    #[error("Function signature of {actual} did not match signature {expected}")]
+    #[error("Function signature {actual} did not match signature {expected}")]
     TypeMismatchError {
         actual: FunctionType,
         expected: FunctionType,
@@ -26,7 +26,7 @@ pub struct Plugin {
 
 impl Plugin {
     pub fn new(path: impl AsRef<Path>) -> Result<Self> {
-        let bytes = std::fs::read(path.as_ref())?;
+        let bytes = std::fs::read(path.as_ref()).map_err(anyhow::Error::from)?;
         let store = RefCell::new(Store::default());
         let module = Module::new(&store.borrow(), bytes).map_err(anyhow::Error::from)?;
         let import_objects = imports! {};
@@ -45,7 +45,7 @@ impl Plugin {
             .instance
             .exports
             .get_function(name.as_ref())
-            .map_err(anyhow::Error::from)?;
+            .map_err(PluginError::ExportError)?;
         let actual = f.ty(&self.store.borrow());
         let expected = FunctionType::new(Args::wasm_types(), Rets::wasm_types());
         if actual != expected {
