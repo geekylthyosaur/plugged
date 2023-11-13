@@ -10,7 +10,7 @@ pub enum PluginError {
     LoadError(#[from] anyhow::Error),
     #[error(transparent)]
     RuntimeError(#[from] wasmer::RuntimeError),
-    #[error("Function signature {actual} did not match signature {expected}")]
+    #[error("Expected function signature {expected} but got {actual}")]
     TypeMismatchError {
         actual: FunctionType,
         expected: FunctionType,
