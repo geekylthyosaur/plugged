@@ -1,4 +1,4 @@
-use std::{cell::RefCell, path::Path};
+use std::{cell::RefCell, ops::Deref, path::Path};
 
 use wasmer::{imports, FunctionType, Instance, Module, Store, Value, WasmTypeList};
 
@@ -81,10 +81,12 @@ impl<'plugin, Args, Rets> Function<'plugin, Args, Rets> {
     fn new(f: impl Fn(Args) -> Result<Rets> + 'plugin) -> Self {
         Self { inner: Box::new(f) }
     }
+}
 
-    pub fn call(&self, args: Args) -> Result<Rets> {
-        let result = (self.inner)(args)?;
-        Ok(result)
+impl<'plugin, Args, Rets> Deref for Function<'plugin, Args, Rets> {
+    type Target = dyn Fn(Args) -> Result<Rets> + 'plugin;
+    fn deref(&self) -> &Self::Target {
+        self.inner.as_ref()
     }
 }
 
@@ -96,7 +98,7 @@ mod tests {
     fn wat() -> Result<()> {
         let plugin = Plugin::new("./examples/plugins/add.wat")?;
         let f = plugin.function::<(i32, i32), i32>("add")?;
-        let result = f.call((42, 1))?;
+        let result = f((42, 1))?;
         assert_eq!(result, 43);
         Ok(())
     }
@@ -107,7 +109,7 @@ mod tests {
             "./examples/plugins/add.wasm/target/wasm32-unknown-unknown/release/add.wasm",
         )?;
         let f = plugin.function::<(i32, i32), i32>("add")?;
-        let result = f.call((42, 1))?;
+        let result = f((42, 1))?;
         assert_eq!(result, 43);
         Ok(())
     }
