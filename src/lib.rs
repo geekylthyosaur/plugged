@@ -1,17 +1,18 @@
 use std::{cell::RefCell, ops::Deref, path::Path};
 
 use wasmer::{imports, FunctionType, Instance, Module, Store, Value, WasmTypeList};
+use wasmer_types::RawValue;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PluginError {
     #[error(transparent)]
-    ExportError(#[from] wasmer::ExportError),
+    Export(#[from] wasmer::ExportError),
     #[error(transparent)]
-    LoadError(#[from] anyhow::Error),
+    Load(#[from] anyhow::Error),
     #[error(transparent)]
-    RuntimeError(#[from] wasmer::RuntimeError),
+    Runtime(#[from] wasmer::RuntimeError),
     #[error("Expected function signature {expected} but got {actual}")]
-    TypeMismatchError {
+    TypeMismatch {
         actual: FunctionType,
         expected: FunctionType,
     },
@@ -27,6 +28,10 @@ pub struct Plugin {
 impl Plugin {
     pub fn new(path: impl AsRef<Path>) -> Result<Self> {
         let bytes = std::fs::read(path.as_ref()).map_err(anyhow::Error::from)?;
+        Self::from_bytes(bytes)
+    }
+
+    pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<Self> {
         let store = RefCell::new(Store::default());
         let module = Module::new(&store.borrow(), bytes).map_err(anyhow::Error::from)?;
         let import_objects = imports! {};
@@ -45,31 +50,24 @@ impl Plugin {
             .instance
             .exports
             .get_function(name.as_ref())
-            .map_err(PluginError::ExportError)?;
+            .map_err(PluginError::Export)?;
+
         let actual = f.ty(&self.store.borrow());
         let expected = FunctionType::new(Args::wasm_types(), Rets::wasm_types());
         if actual != expected {
-            return Err(PluginError::TypeMismatchError { actual, expected });
+            return Err(PluginError::TypeMismatch { actual, expected });
         }
 
-        Ok(Function::new(|args: Args| -> Result<Rets> {
+        let f = |args: Args| -> Result<Rets> {
             let store = &mut self.store.borrow_mut();
-            let types = Args::wasm_types();
-            let mut args = unsafe { args.into_array(store) };
-            let args = args
-                .as_mut()
-                .iter()
-                .zip(types.iter())
-                .map(|(arg, ty)| unsafe { Value::from_raw(store, ty.to_owned(), arg.to_owned()) })
-                .collect::<Vec<_>>();
-            let result = f.call(store, &args)?;
-            let result = result
-                .iter()
-                .map(|ret| ret.as_raw(store))
-                .collect::<Vec<_>>();
-            let result = unsafe { Rets::from_slice(store, &result).unwrap_unchecked() };
+            let args = unsafe { args.into_array(store) }.as_mut().into();
+            let result = f.call_raw(store, args)?;
+            let result = result.iter().map(|v| v.as_raw(store)).collect::<Vec<_>>();
+            let result = unsafe { Rets::from_slice(store, result.as_ref()).unwrap_unchecked() };
             Ok(result)
-        }))
+        };
+
+        Ok(Function::new(f))
     }
 }
 
@@ -85,6 +83,7 @@ impl<'plugin, Args, Rets> Function<'plugin, Args, Rets> {
 
 impl<'plugin, Args, Rets> Deref for Function<'plugin, Args, Rets> {
     type Target = dyn Fn(Args) -> Result<Rets> + 'plugin;
+
     fn deref(&self) -> &Self::Target {
         self.inner.as_ref()
     }
@@ -119,10 +118,10 @@ mod tests {
         let plugin = Plugin::new("./examples/plugins/add.wat")?;
 
         let result = plugin.function::<(i32, i64), i32>("add");
-        assert!(matches!(result, Err(PluginError::TypeMismatchError { .. })));
+        assert!(matches!(result, Err(PluginError::TypeMismatch { .. })));
 
         let result = plugin.function::<(i32, i32), i64>("add");
-        assert!(matches!(result, Err(PluginError::TypeMismatchError { .. })));
+        assert!(matches!(result, Err(PluginError::TypeMismatch { .. })));
         Ok(())
     }
 }
