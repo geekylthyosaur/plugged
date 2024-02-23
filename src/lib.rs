@@ -1,7 +1,6 @@
 use std::{cell::RefCell, ops::Deref, path::Path};
 
-use wasmer::{imports, FunctionType, Instance, Module, Store, Value, WasmTypeList};
-use wasmer_types::RawValue;
+use wasmer::{imports, FunctionType, Instance, Module, Store, WasmTypeList};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PluginError {
