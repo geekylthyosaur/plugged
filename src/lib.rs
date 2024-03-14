@@ -60,9 +60,11 @@ impl Plugin {
         let f = |args: Args| -> Result<Rets> {
             let store = &mut self.store.borrow_mut();
             let args = unsafe { args.into_array(store) }.as_mut().into();
-            let result = f.call_raw(store, args)?;
-            let result = result.iter().map(|v| v.as_raw(store)).collect::<Vec<_>>();
-            let result = unsafe { Rets::from_slice(store, result.as_ref()).unwrap_unchecked() };
+            let result = {
+                let res = f.call_raw(store, args)?;
+                let res = res.iter().map(|v| v.as_raw(store)).collect::<Vec<_>>();
+                unsafe { Rets::from_slice(store, res.as_ref()).unwrap_unchecked() }
+            };
             Ok(result)
         };
 
@@ -70,7 +72,7 @@ impl Plugin {
     }
 }
 
-pub struct Function<'plugin, Args, Rets> {
+pub struct Function<'plugin, Args = (), Rets = ()> {
     inner: Box<dyn Fn(Args) -> Result<Rets> + 'plugin>,
 }
 
